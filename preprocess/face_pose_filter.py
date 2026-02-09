@@ -7,6 +7,8 @@ from multiprocessing import Pool
 import shutil  # 用于复制文件
 import glob
 
+_WORKER_FACE_FILTER = None
+
 # FacePoseFilter 类保持不变，因为它只负责判断逻辑
 class FacePoseFilter:
     def __init__(self, 
@@ -165,6 +167,7 @@ def process_and_copy_video(args):
     """
     多进程包装函数：处理一个视频，如果合格则复制到输出目录
     """
+    global _WORKER_FACE_FILTER
     video_input_path, video_output_path = args
     filter_params = {
     "min_face_size": 120,
@@ -174,12 +177,14 @@ def process_and_copy_video(args):
     "detection_rate": 0.9  # 70%的帧合格才通过
     }
     try:
-        # 在每个进程中创建新的FacePoseFilter实例
-        filter_instance = FacePoseFilter(min_face_size=filter_params["min_face_size"],
-                                         max_yaw=filter_params["max_yaw"],
-                                         max_pitch=filter_params["max_pitch"],
-                                         max_roll=filter_params["max_roll"],
-                                         detection_rate=filter_params["detection_rate"])
+        # 每个进程仅初始化一次 FacePoseFilter，减少 Mediapipe 反复构建导致的内存增长
+        if _WORKER_FACE_FILTER is None:
+            _WORKER_FACE_FILTER = FacePoseFilter(min_face_size=filter_params["min_face_size"],
+                                                 max_yaw=filter_params["max_yaw"],
+                                                 max_pitch=filter_params["max_pitch"],
+                                                 max_roll=filter_params["max_roll"],
+                                                 detection_rate=filter_params["detection_rate"])
+        filter_instance = _WORKER_FACE_FILTER
 
         is_valid, info = filter_instance.process_video(video_input_path)
 
@@ -211,19 +216,19 @@ def filter_and_copy_videos_multiprocessing(input_dir, output_dir, num_workers):
     
     # 准备任务参数
     tasks = [(p_in, p_out) for p_in, p_out in paths]
-    
-    results = []
+
+    passed = 0
+    failed = 0
     print(f"Filtering and copying videos with {num_workers} workers...")
-    with Pool(num_workers) as pool:
-        for result in tqdm.tqdm(pool.imap_unordered(process_and_copy_video, tasks), total=len(tasks)):
-            results.append(result)
-            
-    # 统计并打印结果
-    passed = sum(1 for _, is_valid, _ in results if is_valid)
-    failed = len(results) - passed
+    with Pool(num_workers, maxtasksperchild=200) as pool:
+        for _, is_valid, _ in tqdm.tqdm(pool.imap_unordered(process_and_copy_video, tasks), total=len(tasks)):
+            if is_valid:
+                passed += 1
+            else:
+                failed += 1
     
     print("\nProcessing complete:")
-    print(f"Total videos processed: {len(results)}")
+    print(f"Total videos processed: {len(tasks)}")
     print(f"Passed and copied: {passed}")
     print(f"Failed and filtered: {failed}")
     print(f"Output directory: {output_dir}")
