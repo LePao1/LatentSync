@@ -8,7 +8,7 @@ conda activate latentsync
 conda install -y -c conda-forge ffmpeg
 
 # Python dependencies
-pip install -r requirements.txt
+uv pip install -r requirements.txt
 
 # OpenCV dependencies
 sudo apt -y install libgl1
