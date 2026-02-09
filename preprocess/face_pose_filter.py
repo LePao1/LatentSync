@@ -116,7 +116,7 @@ class FacePoseFilter:
                                 abs(yaw) > self.max_yaw or 
                                 abs(roll) > self.max_roll):
                                 fail_reasons["bad_pose"] += 1
-                                print(f"Frame {current_frame} Bad Pose: P={pitch:.1f}, Y={yaw:.1f}, R={roll:.1f}")
+                                # print(f"Frame {current_frame} Bad Pose: P={pitch:.1f}, Y={yaw:.1f}, R={roll:.1f}")
                             else:
                                 is_frame_valid = True
                 else:

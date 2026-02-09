@@ -29,31 +29,34 @@ def data_processing_pipeline(
     check_model_and_download("checkpoints/auxiliary/sfd_face.pth")
     check_model_and_download("checkpoints/auxiliary/koniq_pretrained.pkl")
 
-    print("Removing broken videos...")
-    remove_broken_videos_multiprocessing(input_dir, total_num_workers)
+    # print("Removing broken videos...")
+    # remove_broken_videos_multiprocessing(input_dir, total_num_workers)
 
-    print("Resampling FPS hz...")
-    resampled_dir = os.path.join(os.path.dirname(input_dir), "resampled")
-    resample_fps_hz_multiprocessing(input_dir, resampled_dir, total_num_workers)
+    # Keep all outputs as siblings of input_dir (e.g., ./data/* for ./data/vfhq_motion/)
+    output_root_dir = os.path.dirname(os.path.normpath(input_dir))
 
-    print("Detecting shot...")
-    shot_dir = os.path.join(os.path.dirname(input_dir), "shot")
-    detect_shot_multiprocessing(resampled_dir, shot_dir, total_num_workers)
+    # print("Resampling FPS hz...")
+    # resampled_dir = os.path.join(output_root_dir, "resampled")
+    # resample_fps_hz_multiprocessing(input_dir, resampled_dir, total_num_workers)
 
-    print("Filtering short...")
-    short_filter_multiprocessing(shot_dir, shot_dir, total_num_workers)
+    # print("Detecting shot...")
+    # shot_dir = os.path.join(output_root_dir, "shot")
+    # detect_shot_multiprocessing(resampled_dir, shot_dir, total_num_workers)
 
-    print("Filtering pose...")
-    pose_dir = os.path.join(os.path.dirname(input_dir), "pose")
-    filter_and_copy_videos_multiprocessing(shot_dir, pose_dir, total_num_workers)
+    # print("Filtering short...")
+    # short_filter_multiprocessing(shot_dir, shot_dir, total_num_workers)
 
-    print("Syncing audio and video...")
-    av_synced_dir = os.path.join(os.path.dirname(input_dir), f"av_synced_{sync_conf_threshold}")
+    # print("Filtering pose...")
+    pose_dir = os.path.join(output_root_dir, "pose")
+    # filter_and_copy_videos_multiprocessing(shot_dir, pose_dir, total_num_workers)
+    
+    # print("Syncing audio and video...")
+    av_synced_dir = os.path.join(output_root_dir, f"av_synced_{sync_conf_threshold}")
     print('av_synced_dir',av_synced_dir)
     sync_av_multi_gpus(pose_dir, av_synced_dir, temp_dir, per_gpu_num_workers, sync_conf_threshold)
 
     print("Filtering visual quality...")
-    high_visual_quality_dir = os.path.join(os.path.dirname(input_dir), "high_visual_quality")
+    high_visual_quality_dir = os.path.join(output_root_dir, "high_visual_quality")
     filter_visual_quality_multi_gpus(av_synced_dir, high_visual_quality_dir, per_gpu_num_workers)
 
 

@@ -26,9 +26,10 @@ def calc_pdist(feat1, feat2, vshift=10):
     dists = []
 
     for i in range(0, len(feat1)):
-
         dists.append(
-            torch.nn.functional.pairwise_distance(feat1[[i], :].repeat(win_size, 1), feat2p[i : i + win_size, :])
+            torch.nn.functional.pairwise_distance(
+                feat1[[i], :].repeat(win_size, 1), feat2p[i : i + win_size, :]
+            )
         )
 
     return dists
@@ -45,7 +46,6 @@ class SyncNetEval(torch.nn.Module):
         self.device = device
 
     def evaluate(self, video_path, temp_dir="temp", batch_size=20, vshift=15):
-
         self.__S__.eval()
 
         # ========== ==========
@@ -78,7 +78,9 @@ class SyncNetEval(torch.nn.Module):
 
         for fname in flist:
             img_input = cv2.imread(fname)
-            img_input = cv2.resize(img_input, (224, 224))  # HARD CODED, CHANGE BEFORE RELEASE
+            img_input = cv2.resize(
+                img_input, (224, 224)
+            )  # HARD CODED, CHANGE BEFORE RELEASE
             images.append(img_input)
 
         im = numpy.stack(images, axis=3)
@@ -119,19 +121,23 @@ class SyncNetEval(torch.nn.Module):
         cc_feat = []
 
         tS = time.time()
-        for i in range(0, lastframe, batch_size):
+        with torch.inference_mode():
+            for i in range(0, lastframe, batch_size):
+                im_batch = [
+                    imtv[:, :, vframe : vframe + 5, :, :]
+                    for vframe in range(i, min(lastframe, i + batch_size))
+                ]
+                im_in = torch.cat(im_batch, 0)
+                im_out = self.__S__.forward_lip(im_in.to(self.device))
+                im_feat.append(im_out.cpu())
 
-            im_batch = [imtv[:, :, vframe : vframe + 5, :, :] for vframe in range(i, min(lastframe, i + batch_size))]
-            im_in = torch.cat(im_batch, 0)
-            im_out = self.__S__.forward_lip(im_in.to(self.device))
-            im_feat.append(im_out.data.cpu())
-
-            cc_batch = [
-                cct[:, :, :, vframe * 4 : vframe * 4 + 20] for vframe in range(i, min(lastframe, i + batch_size))
-            ]
-            cc_in = torch.cat(cc_batch, 0)
-            cc_out = self.__S__.forward_aud(cc_in.to(self.device))
-            cc_feat.append(cc_out.data.cpu())
+                cc_batch = [
+                    cct[:, :, :, vframe * 4 : vframe * 4 + 20]
+                    for vframe in range(i, min(lastframe, i + batch_size))
+                ]
+                cc_in = torch.cat(cc_batch, 0)
+                cc_out = self.__S__.forward_aud(cc_in.to(self.device))
+                cc_feat.append(cc_out.cpu())
 
         im_feat = torch.cat(im_feat, 0)
         cc_feat = torch.cat(cc_feat, 0)
@@ -158,7 +164,6 @@ class SyncNetEval(torch.nn.Module):
         return av_offset.item(), min_dist.item(), conf.item()
 
     def extract_feature(self, opt, videofile):
-
         self.__S__.eval()
 
         # ========== ==========
@@ -191,9 +196,9 @@ class SyncNetEval(torch.nn.Module):
 
         tS = time.time()
         for i in range(0, lastframe, opt.batch_size):
-
             im_batch = [
-                imtv[:, :, vframe : vframe + 5, :, :] for vframe in range(i, min(lastframe, i + opt.batch_size))
+                imtv[:, :, vframe : vframe + 5, :, :]
+                for vframe in range(i, min(lastframe, i + opt.batch_size))
             ]
             im_in = torch.cat(im_batch, 0)
             im_out = self.__S__.forward_lipfeat(im_in.to(self.device))
@@ -211,10 +216,11 @@ class SyncNetEval(torch.nn.Module):
 
     def loadParameters(self, path):
         check_model_and_download(path)
-        loaded_state = torch.load(path, map_location=lambda storage, loc: storage, weights_only=True)
+        loaded_state = torch.load(
+            path, map_location=lambda storage, loc: storage, weights_only=True
+        )
 
         self_state = self.__S__.state_dict()
 
         for name, param in loaded_state.items():
-
             self_state[name].copy_(param)

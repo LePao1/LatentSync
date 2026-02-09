@@ -36,11 +36,13 @@ def gather_paths(input_dir, output_dir):
                 continue
             paths.append((video_input, video_output))
         elif os.path.isdir(os.path.join(input_dir, video)):
-            gather_paths(os.path.join(input_dir, video), os.path.join(output_dir, video))
+            gather_paths(
+                os.path.join(input_dir, video), os.path.join(output_dir, video)
+            )
 
 
 def adjust_offset(video_input: str, video_output: str, av_offset: int, fps: int = 25):
-    command = f"ffmpeg -loglevel error -y -i {video_input} -itsoffset {av_offset/fps} -i {video_input} -map 0:v -map 1:a -c copy -q:v 0 -q:a 0 {video_output}"
+    command = f"ffmpeg -loglevel error -y -i {video_input} -itsoffset {av_offset / fps} -i {video_input} -map 0:v -map 1:a -c copy -q:v 0 -q:a 0 {video_output}"
     subprocess.run(command, shell=True)
 
 
@@ -54,12 +56,18 @@ def func(sync_conf_threshold, paths, device_id, process_temp_dir):
     detect_results_dir = os.path.join(process_temp_dir, "detect_results")
     syncnet_eval_results_dir = os.path.join(process_temp_dir, "syncnet_eval_results")
 
-    syncnet_detector = SyncNetDetector(device=device, detect_results_dir=detect_results_dir)
+    syncnet_detector = SyncNetDetector(
+        device=device, detect_results_dir=detect_results_dir
+    )
 
     for video_input, video_output in paths:
         try:
             av_offset, conf = syncnet_eval(
-                syncnet, syncnet_detector, video_input, syncnet_eval_results_dir, detect_results_dir
+                syncnet,
+                syncnet_detector,
+                video_input,
+                syncnet_eval_results_dir,
+                detect_results_dir,
             )
 
             if conf >= sync_conf_threshold and abs(av_offset) <= 6:
@@ -70,6 +78,9 @@ def func(sync_conf_threshold, paths, device_id, process_temp_dir):
                     adjust_offset(video_input, video_output, av_offset)
         except Exception as e:
             print(e)
+        finally:
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
 
 def split(a, n):
@@ -77,7 +88,9 @@ def split(a, n):
     return (a[i * k + min(i, m) : (i + 1) * k + min(i + 1, m)] for i in range(n))
 
 
-def sync_av_multi_gpus(input_dir, output_dir, temp_dir, num_workers, sync_conf_threshold):
+def sync_av_multi_gpus(
+    input_dir, output_dir, temp_dir, num_workers, sync_conf_threshold
+):
     gather_paths(input_dir, output_dir)
     num_devices = torch.cuda.device_count()
     if num_devices == 0:
@@ -111,4 +124,6 @@ if __name__ == "__main__":
     num_workers = 20  # How many processes per device
     sync_conf_threshold = 3
 
-    sync_av_multi_gpus(input_dir, output_dir, temp_dir, num_workers, sync_conf_threshold)
+    sync_av_multi_gpus(
+        input_dir, output_dir, temp_dir, num_workers, sync_conf_threshold
+    )
