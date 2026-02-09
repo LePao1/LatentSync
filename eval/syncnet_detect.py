@@ -5,9 +5,8 @@ import numpy as np
 from shutil import rmtree
 import torch
 
-from scenedetect.video_manager import VideoManager
+from scenedetect import open_video
 from scenedetect.scene_manager import SceneManager
-from scenedetect.stats_manager import StatsManager
 from scenedetect.detectors import ContentDetector
 
 from scipy.interpolate import interp1d
@@ -74,37 +73,46 @@ class SyncNetDetector:
 
         for shot in scene:
             if shot[1].frame_num - shot[0].frame_num >= min_track:
-                alltracks.extend(self.track_face(faces[shot[0].frame_num : shot[1].frame_num], min_track=min_track))
+                alltracks.extend(
+                    self.track_face(
+                        faces[shot[0].frame_num : shot[1].frame_num],
+                        min_track=min_track,
+                    )
+                )
 
         # Face crop
         for ii, track in enumerate(alltracks):
-            self.crop_video(track, os.path.join(crop_dir, "%05d" % ii), frames_dir, 25, temp_dir, video_dir)
+            self.crop_video(
+                track,
+                os.path.join(crop_dir, "%05d" % ii),
+                frames_dir,
+                25,
+                temp_dir,
+                video_dir,
+            )
 
         rmtree(temp_dir)
 
     def scene_detect(self, video_dir):
-        video_manager = VideoManager([os.path.join(video_dir, "video.mp4")])
-        stats_manager = StatsManager()
-        scene_manager = SceneManager(stats_manager)
-        # Add ContentDetector algorithm (constructor takes detector options like threshold).
+        video = open_video(os.path.join(video_dir, "video.mp4"))
+        scene_manager = SceneManager()
         scene_manager.add_detector(ContentDetector())
-        base_timecode = video_manager.get_base_timecode()
 
-        video_manager.set_downscale_factor()
+        scene_manager.detect_scenes(video=video)
 
-        video_manager.start()
-
-        scene_manager.detect_scenes(frame_source=video_manager)
-
-        scene_list = scene_manager.get_scene_list(base_timecode)
+        scene_list = scene_manager.get_scene_list()
 
         if scene_list == []:
-            scene_list = [(video_manager.get_base_timecode(), video_manager.get_current_timecode())]
+            end_timecode = (
+                video.duration if video.duration is not None else video.position
+            )
+            scene_list = [(video.base_timecode, end_timecode)]
 
         return scene_list
 
-    def track_face(self, scenefaces, num_failed_det=25, min_track=50, min_face_size=100):
-
+    def track_face(
+        self, scenefaces, num_failed_det=25, min_track=50, min_face_size=100
+    ):
         iouThres = 0.5  # Minimum IOU between consecutive face detections
         tracks = []
 
@@ -127,7 +135,6 @@ class SyncNetDetector:
             if track == []:
                 break
             elif len(track) > min_track:
-
                 framenum = np.array([f["frame"] for f in track])
                 bboxes = np.array([np.array(f["bbox"]) for f in track])
 
@@ -140,7 +147,10 @@ class SyncNetDetector:
                 bboxes_i = np.stack(bboxes_i, axis=1)
 
                 if (
-                    max(np.mean(bboxes_i[:, 2] - bboxes_i[:, 0]), np.mean(bboxes_i[:, 3] - bboxes_i[:, 1]))
+                    max(
+                        np.mean(bboxes_i[:, 2] - bboxes_i[:, 0]),
+                        np.mean(bboxes_i[:, 3] - bboxes_i[:, 1]),
+                    )
                     > min_face_size
                 ):
                     tracks.append({"frame": frame_i, "bbox": bboxes_i})
@@ -157,16 +167,28 @@ class SyncNetDetector:
             image = cv2.imread(fname)
 
             image_np = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            bboxes = self.s3f_detector.detect_faces(image_np, conf_th=0.9, scales=[facedet_scale])
+            bboxes = self.s3f_detector.detect_faces(
+                image_np, conf_th=0.9, scales=[facedet_scale]
+            )
 
             dets.append([])
             for bbox in bboxes:
-                dets[-1].append({"frame": fidx, "bbox": (bbox[:-1]).tolist(), "conf": bbox[-1]})
+                dets[-1].append(
+                    {"frame": fidx, "bbox": (bbox[:-1]).tolist(), "conf": bbox[-1]}
+                )
 
         return dets
 
-    def crop_video(self, track, cropfile, frames_dir, frame_rate, temp_dir, video_dir, crop_scale=0.4):
-
+    def crop_video(
+        self,
+        track,
+        cropfile,
+        frames_dir,
+        frame_rate,
+        temp_dir,
+        video_dir,
+        crop_scale=0.4,
+    ):
         flist = glob.glob(os.path.join(frames_dir, "*.jpg"))
         flist.sort()
 
@@ -176,7 +198,6 @@ class SyncNetDetector:
         dets = {"x": [], "y": [], "s": []}
 
         for det in track["bbox"]:
-
             dets["s"].append(max((det[3] - det[1]), (det[2] - det[0])) / 2)
             dets["y"].append((det[1] + det[3]) / 2)  # crop center x
             dets["x"].append((det[0] + det[2]) / 2)  # crop center y
@@ -187,7 +208,6 @@ class SyncNetDetector:
         dets["y"] = signal.medfilt(dets["y"], kernel_size=13)
 
         for fidx, frame in enumerate(track["frame"]):
-
             cs = crop_scale
 
             bs = dets["s"][fidx]  # Detection box size
@@ -195,11 +215,19 @@ class SyncNetDetector:
 
             image = cv2.imread(flist[frame])
 
-            frame = np.pad(image, ((bsi, bsi), (bsi, bsi), (0, 0)), "constant", constant_values=(110, 110))
+            frame = np.pad(
+                image,
+                ((bsi, bsi), (bsi, bsi), (0, 0)),
+                "constant",
+                constant_values=(110, 110),
+            )
             my = dets["y"][fidx] + bsi  # BBox center Y
             mx = dets["x"][fidx] + bsi  # BBox center X
 
-            face = frame[int(my - bs) : int(my + bs * (1 + 2 * cs)), int(mx - bs * (1 + cs)) : int(mx + bs * (1 + cs))]
+            face = frame[
+                int(my - bs) : int(my + bs * (1 + 2 * cs)),
+                int(mx - bs * (1 + cs)) : int(mx + bs * (1 + cs)),
+            ]
 
             vOut.write(cv2.resize(face, (224, 224)))
 
@@ -223,10 +251,13 @@ class SyncNetDetector:
 
         # ========== COMBINE AUDIO AND VIDEO FILES ==========
 
-        command = "ffmpeg -y -nostdin -loglevel error -i %st.mp4 -i %s -c:v copy -c:a aac %s.mp4" % (
-            cropfile,
-            audiotmp,
-            cropfile,
+        command = (
+            "ffmpeg -y -nostdin -loglevel error -i %st.mp4 -i %s -c:v copy -c:a aac %s.mp4"
+            % (
+                cropfile,
+                audiotmp,
+                cropfile,
+            )
         )
         output = subprocess.run(command, shell=True, stdout=None)
 
